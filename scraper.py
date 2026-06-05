@@ -261,20 +261,28 @@ def scrape_google_jobs():
     return jobs
 
 def filter_jobs(jobs):
-    """Filter jobs based on criteria"""
+    """Filter jobs based on criteria - flexible matching"""
     filtered = []
-    keywords = ['founder', 'associate', 'founder associate']
-    locations = ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france']
-    min_salary = 30000
+    locations = ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france', 'united kingdom', 'europe']
 
     for job in jobs:
         title_lower = job['title'].lower()
         location_lower = job['location'].lower()
 
-        # Check title match
-        has_founder = 'founder' in title_lower
-        has_associate = 'associate' in title_lower
-        if not (has_founder and has_associate):
+        # Flexible title matching - look for founder-related roles with associate/relations/operations
+        founder_keywords = ['founder', 'co-founder', 'co founder']
+        associate_keywords = ['associate', 'associate', 'relations', 'operations', 'operations associate', 'partnerships', 'partner']
+
+        has_founder = any(kw in title_lower for kw in founder_keywords)
+        has_associate = any(kw in title_lower for kw in associate_keywords)
+
+        # More flexible: either both keywords OR just "founder associate" as phrase
+        is_founder_role = ('founder associate' in title_lower or
+                          'founder's associate' in title_lower or
+                          'associate, founder' in title_lower or
+                          (has_founder and has_associate))
+
+        if not is_founder_role:
             continue
 
         # Check location match
@@ -289,6 +297,52 @@ def filter_jobs(jobs):
         filtered.append(job)
 
     return filtered
+
+def scrape_adzura():
+    """Search Adzura API for Founder Associate roles"""
+    jobs = []
+    api_key = os.getenv('ADZURA_API_KEY', '')
+
+    if not api_key:
+        print("WARNING: ADZURA_API_KEY not set. Skipping Adzura API.")
+        return jobs
+
+    locations = ['London', 'Berlin', 'Paris']
+
+    for location in locations:
+        try:
+            # Adzura API endpoint
+            url = "https://api.adzuna.com/v1/api/jobs/gb/search/1"
+            params = {
+                'app_id': api_key.split(':')[0] if ':' in api_key else '',
+                'app_key': api_key.split(':')[1] if ':' in api_key else api_key,
+                'what': 'Founder Associate',
+                'where': location,
+                'results_per_page': 10,
+                'sort_by': 'date'
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                for result in data.get('results', []):
+                    job_id = f"adzura_{result.get('id', '')}"
+                    if not job_exists(job_id):
+                        jobs.append({
+                            'job_id': job_id,
+                            'title': result.get('title', ''),
+                            'company': result.get('company', {}).get('display_name', 'Unknown'),
+                            'location': f"{location}, {result.get('location', {}).get('display_name', '')}",
+                            'salary': result.get('salary_min', 'Not specified'),
+                            'url': result.get('redirect_url', ''),
+                            'description': result.get('description', '')[:200],
+                            'source': 'Adzura'
+                        })
+                print(f"Adzura: Found {len(jobs)} jobs in {location}")
+        except Exception as e:
+            print(f"Error searching Adzura for {location}: {e}")
+
+    return jobs
 
 def send_email(recipient, jobs, no_jobs=False, search_hours=1):
     """Send HTML email with job listings"""
@@ -425,8 +479,9 @@ def main():
     search_hours = 24 if is_first else 1
     print(f"First run: {is_first} - Searching last {search_hours} hour{'s' if search_hours > 1 else ''}")
 
-    # Scrape all sources
+    # Scrape all sources (Adzura first as it's most reliable)
     all_jobs = []
+    all_jobs.extend(scrape_adzura())  # Primary: Adzura API (aggregates 1000+ job boards)
     all_jobs.extend(scrape_indeed('UK', last_24h=False))
     all_jobs.extend(scrape_angellist())
     all_jobs.extend(scrape_welcome_to_jungle())
