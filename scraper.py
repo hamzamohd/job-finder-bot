@@ -8,6 +8,14 @@ import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
+from pytz import timezone
+
+# Timezone setup
+IST = timezone('Asia/Kolkata')
+
+def get_ist_now():
+    """Get current time in IST"""
+    return datetime.now(IST)
 
 # Database setup
 DB_FILE = "jobs_database.db"
@@ -51,7 +59,7 @@ def add_job(job_id, title, company, location, salary, url, description, source):
         cursor.execute("""
             INSERT INTO jobs (job_id, title, company, location, salary, url, description, source, found_date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (job_id, title, company, location, salary, url, description, source, datetime.now()))
+        """, (job_id, title, company, location, salary, url, description, source, get_ist_now()))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
@@ -59,11 +67,20 @@ def add_job(job_id, title, company, location, salary, url, description, source):
     finally:
         conn.close()
 
+def is_first_run():
+    """Check if this is the first run (database is empty)"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count == 0
+
 def get_recent_jobs(hours=1):
     """Get jobs found in the last N hours"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    time_threshold = datetime.now() - timedelta(hours=hours)
+    time_threshold = get_ist_now() - timedelta(hours=hours)
     cursor.execute("""
         SELECT id, title, company, location, salary, url, description, source
         FROM jobs WHERE found_date > ? AND notified = 0
@@ -273,17 +290,19 @@ def filter_jobs(jobs):
 
     return filtered
 
-def send_email(recipient, jobs, no_jobs=False):
+def send_email(recipient, jobs, no_jobs=False, search_hours=1):
     """Send HTML email with job listings"""
     sender = os.getenv('EMAIL_SENDER', 'job-finder-bot@gmail.com')
     password = os.getenv('EMAIL_PASSWORD', '')
+    current_time = get_ist_now()
+    next_scan_time = current_time + timedelta(hours=1)
 
     if not password:
         print("WARNING: EMAIL_PASSWORD not set. Email will not be sent.")
         return False
 
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"Job Finder Bot - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    msg['Subject'] = f"Job Finder Bot - {current_time.strftime('%Y-%m-%d %H:%M IST')}"
     msg['From'] = sender
     msg['To'] = recipient
 
@@ -308,9 +327,9 @@ def send_email(recipient, jobs, no_jobs=False):
                         <div class="emoji">😴</div>
                         <h1>All Quiet</h1>
                     </div>
-                    <p>No new <strong>Founder Associate</strong> roles found in UK, Berlin, or Paris in the last hour.</p>
+                    <p>No new <strong>Founder Associate</strong> roles found in UK, Berlin, or Paris in the last {search_hours} hour{'s' if search_hours > 1 else ''}.</p>
                     <div class="next-scan">
-                        ⏰ Next scan: {(datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')} IST
+                        ⏰ Next scan: {next_scan_time.strftime('%Y-%m-%d %H:%M IST')}
                     </div>
                 </div>
             </body>
@@ -373,7 +392,7 @@ def send_email(recipient, jobs, no_jobs=False):
                     </div>
 
                     <div class="next-scan">
-                        ⏰ Next scan: {(datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')} IST
+                        ⏰ Next scan: {next_scan_time.strftime('%Y-%m-%d %H:%M IST')}
                     </div>
                 </div>
             </body>
@@ -396,9 +415,15 @@ def send_email(recipient, jobs, no_jobs=False):
 
 def main():
     """Main scraper function"""
-    print(f"Starting job scraper at {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}")
+    current_time = get_ist_now()
+    print(f"Starting job scraper at {current_time.strftime('%Y-%m-%d %H:%M:%S IST')}")
 
     init_db()
+
+    # Determine search window: 24 hours for first run, 1 hour for subsequent runs
+    is_first = is_first_run()
+    search_hours = 24 if is_first else 1
+    print(f"First run: {is_first} - Searching last {search_hours} hour{'s' if search_hours > 1 else ''}")
 
     # Scrape all sources
     all_jobs = []
@@ -421,18 +446,18 @@ def main():
                    job['description'], job['source']):
             new_job_ids.append(job['job_id'])
 
-    # Get recent jobs for email
-    recent_jobs = get_recent_jobs(hours=1)
+    # Get recent jobs for email (use search_hours window)
+    recent_jobs = get_recent_jobs(hours=search_hours)
 
     # Send email
     recipient = os.getenv('EMAIL_RECIPIENT', 'md.hamza.work@gmail.com')
     if recent_jobs:
         print(f"Sending email with {len(recent_jobs)} new jobs")
-        send_email(recipient, recent_jobs, no_jobs=False)
+        send_email(recipient, recent_jobs, no_jobs=False, search_hours=search_hours)
         mark_notified([job[0] for job in recent_jobs])
     else:
         print("No new jobs found, sending notification email")
-        send_email(recipient, [], no_jobs=True)
+        send_email(recipient, [], no_jobs=True, search_hours=search_hours)
 
     print(f"Scraper completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}")
 
