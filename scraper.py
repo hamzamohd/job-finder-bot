@@ -290,39 +290,83 @@ def send_email(recipient, jobs, no_jobs=False):
     if no_jobs:
         html_content = f"""
         <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>Job Finder Bot Update</h2>
-                <p><strong>No new Founder Associate roles found</strong> in UK, Berlin, or Paris in the last hour.</p>
-                <p>Next scan: {(datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')} IST</p>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin: 0; padding: 20px; }}
+                    .container {{ background: white; border-radius: 12px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 30px; }}
+                    .header {{ text-align: center; margin-bottom: 30px; }}
+                    .emoji {{ font-size: 48px; margin-bottom: 10px; }}
+                    h1 {{ color: #333; margin: 0; font-size: 24px; }}
+                    p {{ color: #666; line-height: 1.6; margin: 15px 0; }}
+                    .next-scan {{ background: #f0f4ff; padding: 15px; border-radius: 8px; color: #667eea; font-size: 13px; margin-top: 20px; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <div class="emoji">😴</div>
+                        <h1>All Quiet</h1>
+                    </div>
+                    <p>No new <strong>Founder Associate</strong> roles found in UK, Berlin, or Paris in the last hour.</p>
+                    <div class="next-scan">
+                        ⏰ Next scan: {(datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')} IST
+                    </div>
+                </div>
             </body>
         </html>
         """
     else:
         job_rows = ""
-        for job in jobs:
+        for idx, job in enumerate(jobs, 1):
             job_rows += f"""
-            <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #ddd;">
-                    <strong>{job[1]}</strong><br/>
-                    <em>{job[2]}</em><br/>
-                    Location: {job[3]}<br/>
-                    Salary: {job[4]}<br/>
-                    <a href="{job[5]}">View Job</a>
-                </td>
-            </tr>
+            <div class="job-card">
+                <div class="job-number">#{idx}</div>
+                <h3 class="job-title">{job[1]}</h3>
+                <p class="job-company">🏢 {job[2]}</p>
+                <p class="job-location">📍 {job[3]}</p>
+                <a href="{job[5]}" class="apply-btn">View Job →</a>
+            </div>
             """
 
         html_content = f"""
         <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>🎯 New Founder Associate Roles Found</h2>
-                <p>Found <strong>{len(jobs)}</strong> new job(s) matching your criteria:</p>
-                <table style="width: 100%; border-collapse: collapse;">
-                    {job_rows}
-                </table>
-                <p style="margin-top: 20px; color: #666;">
-                    Next scan: {(datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')} IST
-                </p>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin: 0; padding: 20px; }}
+                    .container {{ background: white; border-radius: 12px; max-width: 700px; margin: 0 auto; box-shadow: 0 8px 16px rgba(0,0,0,0.1); padding: 30px; }}
+                    .header {{ text-align: center; margin-bottom: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 10px; }}
+                    .emoji {{ font-size: 48px; margin-bottom: 10px; }}
+                    h1 {{ color: white; margin: 0; font-size: 28px; font-weight: 600; }}
+                    .count {{ color: #e0e0ff; font-size: 16px; margin-top: 5px; }}
+                    .job-card {{ background: #f8f9ff; border-left: 4px solid #667eea; padding: 20px; margin: 15px 0; border-radius: 8px; transition: transform 0.2s; }}
+                    .job-card:hover {{ transform: translateX(5px); background: #f0f4ff; }}
+                    .job-number {{ display: inline-block; background: #667eea; color: white; width: 28px; height: 28px; border-radius: 50%; text-align: center; line-height: 28px; font-size: 12px; font-weight: bold; margin-bottom: 10px; }}
+                    .job-title {{ color: #1a1a1a; margin: 10px 0; font-size: 18px; font-weight: 600; }}
+                    .job-company {{ color: #555; margin: 8px 0; font-size: 15px; }}
+                    .job-location {{ color: #888; margin: 8px 0; font-size: 14px; }}
+                    .apply-btn {{ display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; margin-top: 10px; }}
+                    .apply-btn:hover {{ opacity: 0.9; }}
+                    .next-scan {{ background: #f0f4ff; padding: 15px; border-radius: 8px; color: #667eea; font-size: 13px; margin-top: 30px; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <div class="emoji">🎯</div>
+                        <h1>New Opportunities!</h1>
+                        <div class="count">{len(jobs)} role{'s' if len(jobs) > 1 else ''} found</div>
+                    </div>
+
+                    <div class="jobs-list">
+                        {job_rows}
+                    </div>
+
+                    <div class="next-scan">
+                        ⏰ Next scan: {(datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')} IST
+                    </div>
+                </div>
             </body>
         </html>
         """
