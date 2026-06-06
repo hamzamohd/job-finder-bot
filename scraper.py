@@ -127,13 +127,20 @@ def scrape_linkedin_jobs():
 def scrape_arbeitnow():
     """Scrape Arbeitnow API for EU jobs (free, no auth required)"""
     jobs = []
-    keywords = ["Founder Associate", "Founder's Associate", "Associate", "Founder"]
+
+    # Primary: exact matches
+    primary_keywords = ["Founder Associate", "Founder's Associate"]
+    # Secondary: related roles if no exact matches found
+    secondary_keywords = ["Business Development", "Operations Associate", "Founder", "Associate"]
 
     try:
         print("Scraping Arbeitnow API...")
-        for keyword in keywords:
+
+        all_keywords = primary_keywords + secondary_keywords
+        found_primary = False
+
+        for keyword in all_keywords:
             try:
-                # Arbeitnow API endpoint - try with different parameters
                 url = "https://api.arbeitnow.com/api/v2/jobs"
                 params = {
                     'search': keyword,
@@ -141,7 +148,6 @@ def scrape_arbeitnow():
                     'limit': 100
                 }
 
-                # Add custom headers to avoid being blocked
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 }
@@ -149,8 +155,9 @@ def scrape_arbeitnow():
                 response = requests.get(url, params=params, timeout=10, headers=headers)
                 if response.status_code == 200:
                     data = response.json()
+                    keyword_jobs = []
+
                     for job in data.get('data', []):
-                        # Check if location matches our targets
                         location_obj = job.get('location', {})
                         if isinstance(location_obj, dict):
                             city = location_obj.get('city', '')
@@ -161,11 +168,11 @@ def scrape_arbeitnow():
 
                         location_str = f"{city}, {country}".strip(', ')
 
-                        # Check if location or job title matches
-                        if any(loc in location_str for loc in ['UK', 'Germany', 'France', 'Netherlands', 'England', 'London', 'Berlin', 'Paris', 'Amsterdam']):
+                        # Check location
+                        if any(loc.lower() in location_str.lower() for loc in ['UK', 'Germany', 'France', 'Netherlands', 'England', 'London', 'Berlin', 'Paris', 'Amsterdam']):
                             job_hash = create_job_hash(
                                 job.get('title', ''),
-                                job.get('company', {}).get('name', '') if isinstance(job.get('company'), dict) else job.get('company', ''),
+                                job.get('company', {}).get('name', '') if isinstance(job.get('company'), dict) else str(job.get('company', '')),
                                 location_str
                             )
 
@@ -173,15 +180,25 @@ def scrape_arbeitnow():
                                 jobs.append({
                                     'job_hash': job_hash,
                                     'title': job.get('title', ''),
-                                    'company': job.get('company', {}).get('name', '') if isinstance(job.get('company'), dict) else job.get('company', ''),
+                                    'company': job.get('company', {}).get('name', '') if isinstance(job.get('company'), dict) else str(job.get('company', '')),
                                     'location': location_str,
                                     'salary': job.get('salary', 'Not specified'),
                                     'url': job.get('url', ''),
-                                    'description': job.get('description', '')[:300],
-                                    'source': 'Arbeitnow'
+                                    'description': job.get('description', '')[:300] if job.get('description') else '',
+                                    'source': 'Arbeitnow',
+                                    'keyword_match': keyword
                                 })
+                                keyword_jobs.append(job)
+
+                    # Track if we found primary matches
+                    if keyword in primary_keywords and keyword_jobs:
+                        found_primary = True
+
+            except requests.exceptions.RequestException as e:
+                # Network/timeout errors - continue to next source
+                continue
             except Exception as e:
-                # Continue to next keyword instead of failing
+                # Parsing errors - continue to next keyword
                 continue
 
         print(f"  Found {len(jobs)} jobs")
@@ -191,76 +208,11 @@ def scrape_arbeitnow():
     return jobs
 
 def scrape_eures():
-    """Scrape EURES EU job database with broad search"""
+    """Scrape EURES EU job database (currently experiencing rate limiting)"""
     jobs = []
-
-    try:
-        print("Scraping EURES...")
-
-        # EURES searches - try multiple strategies
-        search_terms = [
-            'Founder',
-            'Associate',
-            'Founder Associate',
-            'Founder Relation',
-            'Business Development',
-            'Operations Associate',
-        ]
-
-        found_count = 0
-
-        for search_term in search_terms:
-            try:
-                url = "https://eures.europa.eu/api/v2/jobs"
-                params = {
-                    'keywords': search_term,
-                    'pagesize': 50,
-                }
-
-                response = requests.get(url, params=params, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    results = data.get('results', [])
-                    print(f"    '{search_term}': {len(results)} results")
-
-                    for job in results:
-                        country = job.get('country', '')
-                        city = job.get('city', '')
-                        title = job.get('jobTitle', '').lower()
-                        company = job.get('company', '').lower()
-
-                        # Check location - match any of our target countries
-                        is_target_country = any(c.lower() in country.lower() for c in ['United Kingdom', 'Germany', 'France', 'Netherlands', 'England', 'Scotland'])
-
-                        if not is_target_country:
-                            continue
-
-                        # Create hash for deduplication
-                        job_hash = create_job_hash(
-                            job.get('jobTitle', ''),
-                            company,
-                            f"{city}, {country}"
-                        )
-
-                        if not job_exists(job_hash):
-                            jobs.append({
-                                'job_hash': job_hash,
-                                'title': job.get('jobTitle', ''),
-                                'company': company,
-                                'location': f"{city}, {country}" if city else country,
-                                'salary': job.get('salary', 'Not specified'),
-                                'url': job.get('jobUrl', ''),
-                                'description': job.get('jobDescription', '')[:300] if job.get('jobDescription') else '',
-                                'source': 'EURES'
-                            })
-                            found_count += 1
-            except Exception as e:
-                continue
-
-        print(f"  Found {found_count} unique jobs")
-    except Exception as e:
-        print(f"Error scraping EURES: {e}")
-
+    # EURES API is currently rate-limited - returning empty for now
+    print("Scraping EURES (API currently rate-limited)...")
+    print("  Skipped")
     return jobs
 
 def scrape_apify_vc_jobs():
@@ -290,7 +242,7 @@ def scrape_apify_vc_jobs():
     return jobs
 
 def filter_jobs(jobs):
-    """Filter jobs based on criteria"""
+    """Filter jobs based on criteria - prioritize Founder Associate roles"""
     filtered = []
     locations = ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france', 'united kingdom', 'europe', 'england']
 
@@ -298,26 +250,30 @@ def filter_jobs(jobs):
         title_lower = job['title'].lower()
         location_lower = job['location'].lower()
 
-        # Check if it's a founder-related role (more flexible matching)
-        # Match: "Founder Associate", "Founder's Associate", "Associate to Founder", etc.
-        has_founder = 'founder' in title_lower or 'co-founder' in title_lower
-        has_associate = 'associate' in title_lower or 'startup' in title_lower or 'venture' in title_lower
-
-        is_founder_role = has_founder or (has_associate and ('founder' in job['company'].lower() if job['company'] else False))
-
-        # If no strict match, be more lenient and check for relevant keywords
-        if not is_founder_role:
-            is_founder_role = (has_founder and ('associate' in title_lower or 'operations' in title_lower or 'relations' in title_lower or 'business' in title_lower))
-
-        if not is_founder_role:
-            continue
-
-        # Check location match
+        # Check location first
         location_match = any(loc in location_lower for loc in locations)
         if not location_match:
             continue
 
-        filtered.append(job)
+        # Priority 1: Exact "Founder Associate" match
+        if 'founder' in title_lower and 'associate' in title_lower:
+            filtered.append(job)
+            continue
+
+        # Priority 2: Founder-related roles with complementary keywords
+        has_founder = 'founder' in title_lower or 'co-founder' in title_lower
+        has_operations = 'operations' in title_lower
+        has_business = 'business development' in title_lower
+        has_associate = 'associate' in title_lower
+
+        if has_founder and (has_operations or has_business or has_associate):
+            filtered.append(job)
+            continue
+
+        # Priority 3: Broad founder/startup related
+        if (has_founder or 'startup' in title_lower) and any(word in title_lower for word in ['associate', 'operations', 'business', 'development', 'co-founder']):
+            filtered.append(job)
+            continue
 
     return filtered
 
