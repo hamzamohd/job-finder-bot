@@ -112,105 +112,13 @@ def mark_notified(job_ids):
 # Job scraping functions
 
 def scrape_linkedin_jobs():
-    """Scrape LinkedIn/Indeed jobs using multiple free APIs"""
+    """Scrape jobs from public job boards"""
     jobs = []
 
     try:
-        print("Scraping job APIs...")
-
-        # GitHub Jobs API (deprecated but still works) - broadest search
-        try:
-            print("  Checking GitHub Jobs API...")
-            # Broader search - just look for jobs in target regions
-            search_url = "https://jobs.github.com/positions.json?location=london"
-            response = requests.get(search_url, timeout=5)
-
-            if response.status_code == 200:
-                data = response.json()
-                print(f"    GitHub London: {len(data)} jobs")
-                for job in data:
-                    location = job.get('location', '')
-                    title = job.get('title', '').lower()
-                    company = job.get('company', '').lower()
-
-                    # Very broad matching - check if job looks relevant
-                    if any(word in title or word in company for word in ['founder', 'associate', 'startup', 'venture']):
-                        job_hash = create_job_hash(
-                            job.get('title', ''),
-                            job.get('company', ''),
-                            location
-                        )
-
-                        if not job_exists(job_hash):
-                            jobs.append({
-                                'job_hash': job_hash,
-                                'title': job.get('title', ''),
-                                'company': job.get('company', ''),
-                                'location': location,
-                                'salary': 'Not specified',
-                                'url': job.get('url', ''),
-                                'description': job.get('description', '')[:300],
-                                'source': 'GitHub Jobs'
-                            })
-
-            # Try Berlin and Paris too
-            for city in ['berlin', 'paris']:
-                search_url = f"https://jobs.github.com/positions.json?location={city}"
-                response = requests.get(search_url, timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    print(f"    GitHub {city.capitalize()}: {len(data)} jobs")
-
-        except Exception as e:
-            print(f"    GitHub error: {e}")
-
-        # RemoteOK API - broader check
-        try:
-            print("  Checking RemoteOK API...")
-            search_url = "https://remoteok.io/api"
-            response = requests.get(search_url, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                print(f"    RemoteOK: {len(data)} total remote jobs")
-
-                # Check for EU locations in all results
-                eu_jobs = []
-                for job in data:
-                    if isinstance(job, dict):
-                        location = str(job.get('location', '')).lower()
-                        title = str(job.get('title', '')).lower()
-
-                        # Check if it's in EU
-                        if any(loc in location for loc in ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france', 'eu', 'europe']):
-                            eu_jobs.append(job)
-
-                print(f"    RemoteOK EU: {len(eu_jobs)} jobs")
-
-                for job in eu_jobs:
-                    location = str(job.get('location', ''))
-                    company = str(job.get('company', ''))
-                    title = str(job.get('title', ''))
-
-                    # Match: founder or associate roles
-                    if any(role in title.lower() for role in ['founder', 'associate', 'co-founder']):
-                        job_hash = create_job_hash(title, company, location)
-
-                        if not job_exists(job_hash):
-                            jobs.append({
-                                'job_hash': job_hash,
-                                'title': title,
-                                'company': company,
-                                'location': location,
-                                'salary': 'Not specified',
-                                'url': job.get('url', ''),
-                                'description': job.get('description', '')[:300],
-                                'source': 'RemoteOK'
-                            })
-        except Exception as e:
-            print(f"    RemoteOK error: {e}")
-
-        print(f"  Total from free APIs: {len(jobs)} jobs")
+        print("Scraping public job boards...")
+        # GitHub Jobs is deprecated, RemoteOK has changed
+        # Focus on EURES and Arbeitnow which don't require API keys
     except Exception as e:
         print(f"Error with job API scraping: {e}")
 
@@ -283,54 +191,73 @@ def scrape_arbeitnow():
     return jobs
 
 def scrape_eures():
-    """Scrape EURES EU job database"""
+    """Scrape EURES EU job database with broad search"""
     jobs = []
 
     try:
-        print("Scraping EURES API...")
+        print("Scraping EURES...")
 
-        # Try multiple search keywords
-        keywords = ['Founder Associate', 'Associate', 'Founder', 'Startup']
+        # EURES searches - try multiple strategies
+        search_terms = [
+            'Founder',
+            'Associate',
+            'Founder Associate',
+            'Founder Relation',
+            'Business Development',
+            'Operations Associate',
+        ]
 
-        for keyword in keywords:
+        found_count = 0
+
+        for search_term in search_terms:
             try:
                 url = "https://eures.europa.eu/api/v2/jobs"
                 params = {
-                    'keywords': keyword,
-                    'pagesize': 100,
-                    'sortBy': 'date'
+                    'keywords': search_term,
+                    'pagesize': 50,
                 }
 
                 response = requests.get(url, params=params, timeout=10)
                 if response.status_code == 200:
                     data = response.json()
-                    for job in data.get('results', []):
-                        country = job.get('country', '')
-                        if any(c in country for c in ['United Kingdom', 'Germany', 'France', 'Netherlands']):
-                            job_title = job.get('jobTitle', '').lower()
-                            # Check if it matches our criteria (founder + associate/related)
-                            if 'founder' in job_title or 'associate' in job_title:
-                                job_hash = create_job_hash(
-                                    job.get('jobTitle', ''),
-                                    job.get('company', ''),
-                                    f"{job.get('city', '')}, {country}"
-                                )
+                    results = data.get('results', [])
+                    print(f"    '{search_term}': {len(results)} results")
 
-                                if not job_exists(job_hash):
-                                    jobs.append({
-                                        'job_hash': job_hash,
-                                        'title': job.get('jobTitle', ''),
-                                        'company': job.get('company', ''),
-                                        'location': f"{job.get('city', '')}, {country}",
-                                        'salary': job.get('salary', 'Not specified'),
-                                        'url': job.get('jobUrl', ''),
-                                        'description': job.get('jobDescription', '')[:300],
-                                        'source': 'EURES'
-                                    })
+                    for job in results:
+                        country = job.get('country', '')
+                        city = job.get('city', '')
+                        title = job.get('jobTitle', '').lower()
+                        company = job.get('company', '').lower()
+
+                        # Check location - match any of our target countries
+                        is_target_country = any(c.lower() in country.lower() for c in ['United Kingdom', 'Germany', 'France', 'Netherlands', 'England', 'Scotland'])
+
+                        if not is_target_country:
+                            continue
+
+                        # Create hash for deduplication
+                        job_hash = create_job_hash(
+                            job.get('jobTitle', ''),
+                            company,
+                            f"{city}, {country}"
+                        )
+
+                        if not job_exists(job_hash):
+                            jobs.append({
+                                'job_hash': job_hash,
+                                'title': job.get('jobTitle', ''),
+                                'company': company,
+                                'location': f"{city}, {country}" if city else country,
+                                'salary': job.get('salary', 'Not specified'),
+                                'url': job.get('jobUrl', ''),
+                                'description': job.get('jobDescription', '')[:300] if job.get('jobDescription') else '',
+                                'source': 'EURES'
+                            })
+                            found_count += 1
             except Exception as e:
                 continue
 
-        print(f"  Found {len(jobs)} jobs")
+        print(f"  Found {found_count} unique jobs")
     except Exception as e:
         print(f"Error scraping EURES: {e}")
 
