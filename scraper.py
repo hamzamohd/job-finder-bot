@@ -112,28 +112,24 @@ def mark_notified(job_ids):
 # Job scraping functions
 
 def scrape_linkedin_jobs():
-    """Scrape LinkedIn jobs using JSEARCH API (free tier)"""
+    """Scrape LinkedIn/Indeed jobs using multiple free APIs"""
     jobs = []
-    keywords = ["Founder Associate", "Founder's Associate"]
-    locations = ["London", "Berlin", "Paris", "Amsterdam"]
 
     try:
-        print("Scraping LinkedIn/Indeed via JSEARCH...")
+        print("Scraping LinkedIn/Indeed via free APIs...")
 
-        # Using a free job search API
-        url = "https://api.adzuna.com/v1/api/jobs/gb/search/1"
+        # GitHub Jobs API (deprecated but still works)
+        try:
+            for keyword in ["Founder Associate", "Associate", "Founder"]:
+                search_url = f"https://jobs.github.com/positions.json?description={keyword}"
+                response = requests.get(search_url, timeout=5)
 
-        # Note: Adzuna API requires API key, but we'll try common searches
-        for location in locations:
-            for keyword in keywords:
-                try:
-                    # Try direct search without auth (public data)
-                    search_url = f"https://jobs.github.com/positions.json?description={keyword}&location={location}"
-                    response = requests.get(search_url, timeout=5)
-
-                    if response.status_code == 200:
-                        data = response.json()
-                        for job in data:
+                if response.status_code == 200:
+                    data = response.json()
+                    for job in data:
+                        location = job.get('location', '')
+                        # Check if location matches our targets
+                        if any(loc in location.lower() for loc in ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france']):
                             job_hash = create_job_hash(
                                 job.get('title', ''),
                                 job.get('company', ''),
@@ -149,13 +145,48 @@ def scrape_linkedin_jobs():
                                     'salary': 'Not specified',
                                     'url': job.get('url', ''),
                                     'description': job.get('description', '')[:300],
-                                    'source': 'LinkedIn/Indeed'
+                                    'source': 'GitHub Jobs'
                                 })
-                except Exception as e:
-                    pass
+        except Exception as e:
+            pass
 
-        if jobs:
-            print(f"  Found {len(jobs)} jobs from LinkedIn/Indeed")
+        # RemoteOK API - free jobs API
+        try:
+            search_url = "https://remoteok.io/api"
+            response = requests.get(search_url, timeout=5)
+
+            if response.status_code == 200:
+                data = response.json()
+                for job in data:
+                    if isinstance(job, dict):
+                        location = job.get('location', '')
+                        company = job.get('company', '')
+                        title = job.get('title', '')
+
+                        # Check location
+                        if any(loc in location.lower() for loc in ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france']):
+                            # Check if it's a founder/associate role
+                            if any(role in title.lower() for role in ['founder', 'associate', 'co-founder']):
+                                job_hash = create_job_hash(title, company, location)
+
+                                if not job_exists(job_hash):
+                                    jobs.append({
+                                        'job_hash': job_hash,
+                                        'title': title,
+                                        'company': company,
+                                        'location': location,
+                                        'salary': 'Not specified',
+                                        'url': job.get('url', ''),
+                                        'description': job.get('description', '')[:300],
+                                        'source': 'RemoteOK'
+                                    })
+        except Exception as e:
+            pass
+
+        if len(jobs) > 0:
+            print(f"  Found {len(jobs)} jobs from free APIs")
+        else:
+            print(f"  Found 0 jobs")
     except Exception as e:
         print(f"Error with LinkedIn scraping: {e}")
 
@@ -310,14 +341,22 @@ def scrape_apify_vc_jobs():
 def filter_jobs(jobs):
     """Filter jobs based on criteria"""
     filtered = []
-    locations = ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france', 'united kingdom', 'europe']
+    locations = ['uk', 'london', 'berlin', 'paris', 'amsterdam', 'netherlands', 'germany', 'france', 'united kingdom', 'europe', 'england']
 
     for job in jobs:
         title_lower = job['title'].lower()
         location_lower = job['location'].lower()
 
-        # Check if it's a founder-related role
-        is_founder_role = ('founder' in title_lower and ('associate' in title_lower or 'relations' in title_lower or 'operations' in title_lower))
+        # Check if it's a founder-related role (more flexible matching)
+        # Match: "Founder Associate", "Founder's Associate", "Associate to Founder", etc.
+        has_founder = 'founder' in title_lower or 'co-founder' in title_lower
+        has_associate = 'associate' in title_lower or 'startup' in title_lower or 'venture' in title_lower
+
+        is_founder_role = has_founder or (has_associate and ('founder' in job['company'].lower() if job['company'] else False))
+
+        # If no strict match, be more lenient and check for relevant keywords
+        if not is_founder_role:
+            is_founder_role = (has_founder and ('associate' in title_lower or 'operations' in title_lower or 'relations' in title_lower or 'business' in title_lower))
 
         if not is_founder_role:
             continue
